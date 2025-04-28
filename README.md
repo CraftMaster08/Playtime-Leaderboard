@@ -8,13 +8,13 @@ A Minecraft Forge mod for version 1.20.1 that adds a `/playtime` command to disp
 - **Accessible to All Players**: Requires no permission, so anyone can use it.
 - **Shows Playtime for All Players**:
   - Displays playtime for both online and offline players.
-  - Reads player stats from `world/stats` folder.
-  - Calculates playtime in hours by converting ticks to hours.
-- **Sorted Leaderboard**:
+  - Hover over the hours display to see the time spent on this world today (Reset time can be edited in config)
   - Sorts players by playtime in descending order (highest to lowest).
+  - Setting colors for specific usernames and blacklisting players from leaderboard is possible in the config (see `Configuration`)
 
 ## Usage
 - **Command**: `/playtime`
+- **Command**: `/playtime reload` to reload config (requires OP on Server)
 - **Example Output**:
 <image>
 
@@ -27,22 +27,34 @@ A Minecraft Forge mod for version 1.20.1 that adds a `/playtime` command to disp
 - **Color Coding**:
 <image>
 
-### Technical Details
-- **Error Handling while getting Usernames**:
-  - Logs errors for stat file reading and Mojang API failures to `latest.log`.
-  - Gets the Username from Mojang's API if the Username cache doesn't give a result.
-  - Falls back to `Unknown_<uuid>` for usernames if API fails.
-  
+## Configuration
+- **Config File**: `config/playtimeleaderboard_config.json`
+
+- **Custom Username Colors**: Specify colors for specific usernames in the leaderboard.
+- **Blacklist Players**: Exclude specific players from the `/playtime` leaderboard.
+- **Reloading Config**:
+- Edit the config file while the server is running.
+- Run `/playtime reload` (admin required) to apply changes without restarting the server.
+- **Example**:
+```json
+{
+  "username_colors": {
+    "CraftMaster2008": "dark_aqua",
+    "RedPlayer123": "red"
+  },
+  "blacklisted_players": [
+    "MeanPlayer456",
+    "SecretPlayer80"
+  ],
+  "daily_reset_time": "00:00:00 UTC"
+}
+```
+
 ---
 
-## Future Plans (Before Release)
-- **Name Color in Config File**:
-  - currently fixed as white
-- **Config to Blacklist Players**:
-  - config option to blacklist specific players, excluding them from the `/playtime` leaderboard
+## Future Plans
 - **Better Formatting for Hours**:
   - Improve the hours display
-  - configs for display colors
 
 ## License
 - This mod is released under the [MIT License](LICENSE). Feel free to use, modify, and distribute it as per the license terms.
