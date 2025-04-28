@@ -1,23 +1,15 @@
 package net.craftmaster08.playtimeleaderboard;
 
-import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.logging.LogUtils;
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.commands.Commands;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
-import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
-import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import org.slf4j.Logger;
 
 // The value here should match an entry in the META-INF/mods.toml file
@@ -34,10 +26,11 @@ public class PlaytimeLeaderboard
     private static PlaytimeUsernameCache usernameCache;
     private static DailyPlaytimeTracker dailyPlaytimeTracker;
 
-    public PlaytimeLeaderboard(FMLJavaModLoadingContext context)
+    public PlaytimeLeaderboard()
     {
-        IEventBus modEventBus = context.getModEventBus();
 /*
+        IEventBus modEventBus = context.getModEventBus();
+
         modEventBus.addListener(this::commonSetup);
 */
         MinecraftForge.EVENT_BUS.addListener(this::registerCommands);
