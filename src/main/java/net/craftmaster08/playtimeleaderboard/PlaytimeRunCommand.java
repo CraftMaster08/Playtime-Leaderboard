@@ -5,10 +5,12 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 import net.minecraft.server.MinecraftServer;
@@ -29,12 +31,16 @@ import java.util.stream.Collectors;
 public class PlaytimeRunCommand {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher)
     {
-        PlaytimeRunCommand runCommand = new PlaytimeRunCommand();
-        dispatcher.register(
-                Commands.literal("playtime")
-                        .requires(source -> source.hasPermission(0))
-                        .executes(context -> execute(context.getSource()))
-        );
+        LiteralArgumentBuilder<CommandSourceStack> playtimeCommand = Commands.literal("playtime")
+                // Base command: /playtime (shows leaderboard)
+                .requires(source -> source.hasPermission(0))
+                .executes(context -> execute(context.getSource()))
+                // Subcommand: /playtime reload (reloads config)
+                .then(Commands.literal("reload")
+                        .requires(source -> source.hasPermission(2)) // Requires permission level 2 (admin)
+                        .executes(context -> reloadConfig(context.getSource())));
+
+        dispatcher.register(playtimeCommand);
     }
 
     private enum PodiumRank
@@ -161,16 +167,25 @@ public class PlaytimeRunCommand {
     }
 
     private static int execute(CommandSourceStack source) {
-        MinecraftServer server = source.getServer();
+        MinecraftServer server = PlaytimeLeaderboard.getServer();
+        ConfigManager config = PlaytimeLeaderboard.getConfigManager();
+        DailyPlaytimeTracker dailyTracker = PlaytimeLeaderboard.getDailyPlaytimeTracker();
+        Set<String> blacklistedPlayers = config.getBlacklistedPlayers();
+        Map<String, ChatFormatting> usernameColors = config.getUsernameColors();
+
         List<PlayerPlaytime> playtimes = new ArrayList<>();
 
         // Online players
         List<ServerPlayer> onlinePlayers = server.getPlayerList().getPlayers();
         for (ServerPlayer player : onlinePlayers) {
-            playtimes.add(new PlayerPlaytime(
-                    player.getName().getString(),
-                    player.getStats().getValue(Stats.CUSTOM.get(Stats.PLAY_TIME)) / 20.0 / 3600.0
-            ));
+            String username = player.getName().getString();
+            if (!blacklistedPlayers.contains(username.toLowerCase())) {
+                playtimes.add(new PlayerPlaytime(
+                        username,
+                        player.getStats().getValue(Stats.CUSTOM.get(Stats.PLAY_TIME)) / 20.0 / 3600.0,
+                        player.getUUID()
+                ));
+            }
         }
 
         // Offline players
@@ -200,7 +215,9 @@ public class PlaytimeRunCommand {
                                 if (playTimeElement != null) {
                                     double hours = playTimeElement.getAsLong() / 20.0 / 3600.0;
                                     String username = getUsernameFromUUID(server, uuid, uuidString);
-                                    playtimes.add(new PlayerPlaytime(username, hours));
+                                    if (!blacklistedPlayers.contains(username.toLowerCase())) {
+                                        playtimes.add(new PlayerPlaytime(username, hours, uuid));
+                                    }
                                 }
                             }
                         }
@@ -215,70 +232,55 @@ public class PlaytimeRunCommand {
                 .sorted(Comparator.comparingDouble(PlayerPlaytime::playtime).reversed())
                 .collect(Collectors.toList());
 
-        // Calculate max username lengths for podium and non-podium (including :)
-        int maxPodiumUsernameLength = 0;
-        int maxNonPodiumUsernameLength = 0;
-        for (int i = 0; i < playtimes.size(); i++) {
-            String username = playtimes.get(i).username() + ":";
-            int length = username.length();
-            if (i < 3) {
-                maxPodiumUsernameLength = Math.max(maxPodiumUsernameLength, length);
-            } else {
-                maxNonPodiumUsernameLength = Math.max(maxNonPodiumUsernameLength, length);
-            }
+        // Calculate the maximum length needed for alignment
+        int maxUsernameLength = 0;
+        for (PlayerPlaytime pt : playtimes) {
+            String username = pt.username() + ":";
+            maxUsernameLength = Math.max(maxUsernameLength, username.length());
         }
-        // Adjust padding for Minecraft chat rendering
-        final int basePadding = 16; // Minimum padding to ensure alignment in chat
-        final int podiumPadding = Math.max(basePadding, maxPodiumUsernameLength) + 6; // Extra 6 for podium
-        final int nonPodiumPadding = Math.max(basePadding, maxNonPodiumUsernameLength);
+        // Ensure a minimum padding to avoid cramped display
+        final int basePadding = 16;
+        // Add space for the rank (e.g., "1. ") for podium players, which is 3 characters
+        final int rankLength = 3;
+        // Total padding includes the rank for podium players
+        final int totalPadding = Math.max(basePadding, maxUsernameLength + rankLength);
 
-        // Calculate the longest line length (approximate visible characters)
+        // Calculate the longest line length for the border
         int maxLineLength = 0;
         for (int i = 0; i < playtimes.size(); i++) {
             PlayerPlaytime pt = playtimes.get(i);
             int lineLength = 0;
 
-            // Add rank length (e.g., "1. " for podium)
             PodiumRank rank = PodiumRank.fromPosition(i + 1);
             if (rank != PodiumRank.NONE) {
-                lineLength += 3; // "1. " (2 chars + 1 space)
+                lineLength += rankLength; // "X. "
             }
 
-            // Add username length (without extra padding spaces for length calc)
             String username = pt.username() + ":";
-            lineLength += username.length();
+            lineLength += totalPadding; // Use totalPadding for consistent alignment
 
-            // Padding spaces: don't count for visible width
-            int paddingLength = (i < 3) ? podiumPadding : nonPodiumPadding;
-            // int paddingSpaces = Math.max(0, paddingLength - username.length()); // Not counted
-
-            // Add hours length (including star if present)
             double playtime = pt.playtime();
             String hoursText = playtime >= 1000.0 ? String.format("%d", (int) playtime) : String.format("%.2f", playtime);
             lineLength += hoursText.length() + 1; // +1 for "h"
             if (playtime >= 1000.0) {
-                lineLength += 0; // Star (✫ or ✪) + space, count as 0 chars for width
+                lineLength += 1; // For the star symbol (✪ or ✫)
             }
 
-            // Add days length if applicable (reduce leading spaces in width calc)
             if (playtime >= 100.0) {
                 double days = playtime / 24.0;
-                String daysText = String.format("(%.2fd)", days); // Exclude "    " from width
-                lineLength += daysText.length() + 2; // Add 2 for leading spaces (instead of 4)
+                String daysText = String.format("(%.2fd)", days);
+                lineLength += daysText.length() + 4; // +4 for "    "
             }
 
             maxLineLength = Math.max(maxLineLength, lineLength);
         }
-        // Add "Playtime:" length (9 chars)
-        maxLineLength = Math.max(maxLineLength, 9);
+        maxLineLength = Math.max(maxLineLength, 9); // Minimum length for "Playtime:"
 
-        // Create border: 3 characters longer than the longest line
         int borderLength = maxLineLength + 3;
         String border = "=".repeat(borderLength);
         MutableComponent borderComponent = Component.literal(border)
                 .withStyle(Style.EMPTY.withColor(ChatFormatting.GOLD).withBold(true));
 
-        // Send top border
         source.sendSystemMessage(borderComponent);
         source.sendSystemMessage(Component.literal("Playtime:").withStyle(ChatFormatting.DARK_GREEN));
         for (int i = 0; i < playtimes.size(); i++) {
@@ -290,19 +292,26 @@ public class PlaytimeRunCommand {
                 message = message.append(Component.literal(" "));
             }
 
-            // Pad username with : to align hours
             String username = pt.username() + ":";
-            int paddingLength = (i < 3) ? podiumPadding : nonPodiumPadding;
-            String paddedUsername = username + " ".repeat(Math.max(0, paddingLength - username.length()));
+            // Calculate padding: for podium players, reduce by rankLength to account for "X. "
+            int usernamePadding = (rank != PodiumRank.NONE) ? totalPadding - rankLength : totalPadding;
+            String paddedUsername = username + " ".repeat(Math.max(0, usernamePadding - username.length()));
+            ChatFormatting usernameColor = usernameColors.getOrDefault(pt.username().toLowerCase(), ChatFormatting.WHITE);
             MutableComponent usernameComponent = Component.literal(paddedUsername)
-                    .withStyle(Style.EMPTY.withColor(ChatFormatting.WHITE).withBold(false));
+                    .withStyle(Style.EMPTY.withColor(usernameColor).withBold(false));
 
             MutableComponent hours = HourRange.findRange(pt.playtime()).formatHours(pt.playtime());
+            // Add hover event for daily playtime
+            double dailyHours = dailyTracker.getDailyPlaytime(pt.uuid());
+            String dailyText = DailyPlaytimeTracker.formatDailyPlaytime(dailyHours);
+            hours = hours.withStyle(hours.getStyle().withHoverEvent(
+                    new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal(dailyText))
+            ));
 
             message = message.append(usernameComponent).append(hours);
 
             if (pt.playtime() >= 100.0) {
-                double days = pt.playtime / 24.0;
+                double days = pt.playtime() / 24.0;
                 String daysText = String.format("    (%.2fd)", days);
                 message = message.append(Component.literal(daysText)
                         .withStyle(Style.EMPTY.withColor(rank.getColor()).withBold(true)));
@@ -310,15 +319,27 @@ public class PlaytimeRunCommand {
 
             source.sendSystemMessage(message);
 
-            // Add empty line after podium (positions 1-3)
             if (i == 2 && playtimes.size() > 3) {
                 source.sendSystemMessage(Component.literal(""));
             }
         }
-        // Send bottom border
         source.sendSystemMessage(borderComponent);
 
         return 1;
+    }
+
+    private static int reloadConfig(CommandSourceStack source) {
+        ConfigManager configManager = PlaytimeLeaderboard.getConfigManager();
+        try {
+            configManager.loadConfig();
+            source.sendSystemMessage(Component.literal("Successfully reloaded playtimeleaderboard_config.json")
+                    .withStyle(ChatFormatting.GREEN));
+            return 1;
+        } catch (Exception e) {
+            source.sendSystemMessage(Component.literal("Failed to reload playtimeleaderboard_config.json: " + e.getMessage())
+                    .withStyle(ChatFormatting.RED));
+            return 0;
+        }
     }
 
     private static String getUsernameFromUUID(MinecraftServer server, UUID uuid, String uuidString)
@@ -376,5 +397,5 @@ public class PlaytimeRunCommand {
         return "Unknown_" + uuidString.substring(0, 8);
     }
 
-    private record PlayerPlaytime(String username, double playtime) {}
+    private record PlayerPlaytime(String username, double playtime, UUID uuid) {}
 }
