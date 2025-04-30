@@ -1,6 +1,6 @@
 # Playtime Leaderboard
 
-A Minecraft Forge mod for version 1.20.1 that adds a `/playtime` command to display playtime statistics for all players (online and offline) on a server or singleplayer world. The mod provides a detailed, formatted leaderboard with customizable colors, podium ranks, and alignment for an enhanced user experience.
+A Minecraft Forge mod for version 1.19.2 & 1.20.1 that adds a `/playtime` command to display playtime statistics for all players (online and offline) on a server or singleplayer world. The mod provides a detailed, formatted leaderboard with customizable colors, podium ranks, and alignment for an enhanced user experience.
 
 ## Features
 
