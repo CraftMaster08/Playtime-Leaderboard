@@ -1,0 +1,11 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+
+[[mods]]
+modId="cm08statscore"
+namespace="cm08statscore"
+version="0.1-1.20.1"
+displayName="StatsCore"
+description="Library Mod for all statistics mods by CraftMaster2008."
+authors="CraftMaster2008"

@@ -12,3 +12,8 @@ pluginManagement {
 plugins {
     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.7.0'
 }
+
+rootProject.name = 'StatsMods'
+
+include 'cm08statscore'
+include 'playtimeleaderboard'
