@@ -156,12 +156,13 @@ public class DailyPlaytimeTracker {
         void setDailyResetTime(String timeStr) {
             try {
                 String[] parts = timeStr.split(" ");
-                if (parts.length != 2 || !parts[1].equals("UTC")) {
+                if (parts.length != 1) {
                     throw new DateTimeParseException("Invalid format, expected 'HH:mm:ss UTC'", timeStr, 0);
                 }
                 this.resetTime = LocalTime.parse(parts[0], DateTimeFormatter.ofPattern("HH:mm:ss"));
-                this.dailyResetTime = timeStr;
-                LOGGER.info("Set daily reset time to: {}", timeStr);
+                String timeUTC = timeStr + " UTC";
+                this.dailyResetTime = timeUTC;
+                LOGGER.info("Set daily reset time to: {}", timeUTC);
             } catch (DateTimeParseException e) {
                 LOGGER.error("Invalid daily_reset_time format: {}. Defaulting to 00:00:00 UTC", timeStr, e);
                 this.resetTime = LocalTime.of(0, 0, 0);

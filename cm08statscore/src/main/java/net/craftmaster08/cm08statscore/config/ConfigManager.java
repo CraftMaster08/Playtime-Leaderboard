@@ -20,6 +20,7 @@ import java.util.*;
 public class ConfigManager {
     private static final Logger LOGGER = LogManager.getLogger(ConfigManager.class);
     public static final Path CONFIG_PATH = FMLPaths.CONFIGDIR.get().resolve("statscore_config.json");
+    public static final Path OLD_CONFIG_PATH = FMLPaths.CONFIGDIR.get().resolve("playtimeleaderboard_config.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     public Map<String, ChatFormatting> usernameColors;
@@ -34,7 +35,7 @@ public class ConfigManager {
         }
         this.usernameColors = Map.of();
         this.blacklistedPlayers = Set.of();
-        this.dailyResetTime = "00:00:00 UTC";
+        this.dailyResetTime = "00:00:00";
         loadConfig();
     }
 
@@ -57,11 +58,29 @@ public class ConfigManager {
     }
 
     /**
-     * Loads the configuration from the JSON file.
+     * Loads the configuration, handling old playtimeleaderboard_config.json if present and no new config exists.
      */
     public void loadConfig() {
         File configFile = CONFIG_PATH.toFile();
-        if (!configFile.exists()) {
+        File oldConfigFile = OLD_CONFIG_PATH.toFile();
+
+        // Warn if old config exists alongside new config
+        if (oldConfigFile.exists() && configFile.exists()) {
+            LOGGER.warn("Old configuration file '{}' exists alongside '{}'. The old file is ignored and should be deleted manually to avoid confusion. It does not affect mod functionality.",
+                    OLD_CONFIG_PATH.getFileName(), CONFIG_PATH.getFileName());
+        }
+
+        // Migrate old config if it exists and new config does not
+        if (oldConfigFile.exists() && !configFile.exists()) {
+            LOGGER.info("Found old playtimeleaderboard_config.json; migrating to statscore_config.json");
+            if (migrateOldConfig(oldConfigFile, configFile)) {
+                LOGGER.info("Successfully migrated old config to {}", configFile.getAbsolutePath());
+            } else {
+                LOGGER.error("Failed to migrate old config; creating default statscore_config.json");
+                ConfigLoader.createDefaultConfig(configFile);
+            }
+        } else if (!configFile.exists()) {
+            LOGGER.info("No config file found; creating default statscore_config.json");
             ConfigLoader.createDefaultConfig(configFile);
         }
 
@@ -70,6 +89,80 @@ public class ConfigManager {
             dailyPlaytimeTracker.setDailyResetTime(dailyResetTime);
         } else {
             LOGGER.warn("Skipping dailyPlaytimeTracker.setDailyResetTime due to null tracker");
+        }
+    }
+
+    /**
+     * Migrates the old playtimeleaderboard_config.json to the new statscore_config.json format.
+     *
+     * @param oldConfigFile The old config file.
+     * @param newConfigFile The new config file.
+     * @return true if migration was successful, false otherwise.
+     */
+    private boolean migrateOldConfig(File oldConfigFile, File newConfigFile) {
+        try (FileReader reader = new FileReader(oldConfigFile)) {
+            JsonObject oldConfigJson = GSON.fromJson(reader, JsonObject.class);
+            if (oldConfigJson == null) {
+                throw new JsonParseException("Old config file is empty or invalid JSON");
+            }
+
+            // Extract data from old config
+            Map<String, ChatFormatting> tempUsernameColors = new HashMap<>();
+            if (oldConfigJson.has("username_colors")) {
+                JsonObject usernameColorsJson = oldConfigJson.getAsJsonObject("username_colors");
+                for (Map.Entry<String, com.google.gson.JsonElement> entry : usernameColorsJson.entrySet()) {
+                    String username = entry.getKey();
+                    String colorName = entry.getValue().getAsString().toUpperCase();
+                    ChatFormatting color = ChatFormatting.getByName(colorName);
+                    if (color == null || !color.isColor()) {
+                        LOGGER.warn("Invalid Minecraft color in old config for {}: {}", username, colorName);
+                        continue;
+                    }
+                    tempUsernameColors.put(username, color);
+                }
+            }
+
+            Set<String> tempBlacklistedPlayers = new HashSet<>();
+            if (oldConfigJson.has("blacklisted_players")) {
+                oldConfigJson.getAsJsonArray("blacklisted_players")
+                        .forEach(element -> {
+                            String player = element.getAsString();
+                            tempBlacklistedPlayers.add(player);
+                            LOGGER.info("Migrated blacklisted player: {}", player);
+                        });
+            }
+
+            String tempDailyResetTime = oldConfigJson.has("daily_reset_time")
+                    ? oldConfigJson.get("daily_reset_time").getAsString().replaceAll("\\s*UTC.*", "")
+                    : "00:00:00";
+
+            // Create new config in the new format
+            JsonObject newConfig = new JsonObject();
+            newConfig.addProperty("_comment", "DO NOT EDIT THIS FILE MANUALLY. Use /statsconfig commands to modify settings.");
+            newConfig.addProperty("daily_reset_time", tempDailyResetTime);
+
+            JsonObject usernameColorsJson = new JsonObject();
+            tempUsernameColors.forEach((username, color) -> usernameColorsJson.addProperty(username, color.getName().toUpperCase()));
+            newConfig.add("username_colors", usernameColorsJson);
+
+            com.google.gson.JsonArray blacklistedPlayersArray = new com.google.gson.JsonArray();
+            tempBlacklistedPlayers.forEach(blacklistedPlayersArray::add);
+            newConfig.add("blacklisted_players", blacklistedPlayersArray);
+
+            // Write new config to statscore_config.json
+            try (FileWriter writer = new FileWriter(newConfigFile)) {
+                GSON.toJson(newConfig, writer);
+                LOGGER.info("Wrote migrated config to {}", newConfigFile.getAbsolutePath());
+            }
+
+            // Update ConfigManager fields
+            this.usernameColors = Map.copyOf(tempUsernameColors);
+            this.blacklistedPlayers = Set.copyOf(tempBlacklistedPlayers);
+            this.dailyResetTime = tempDailyResetTime;
+            return true;
+        } catch (IOException | JsonParseException e) {
+            LOGGER.error("Failed to migrate old playtimeleaderboard_config.json", e);
+            return false;
         }
     }
 
@@ -88,7 +181,7 @@ public class ConfigManager {
                 if (configJson.has("username_colors")) {
                     JsonObject usernameColorsJson = configJson.getAsJsonObject("username_colors");
                     for (Map.Entry<String, com.google.gson.JsonElement> entry : usernameColorsJson.entrySet()) {
-                        String username = entry.getKey().toLowerCase();
+                        String username = entry.getKey();
                         String colorName = entry.getValue().getAsString().toUpperCase();
                         ChatFormatting color = ChatFormatting.getByName(colorName);
                         if (color == null || !color.isColor()) {
@@ -102,17 +195,22 @@ public class ConfigManager {
                 Set<String> tempBlacklistedPlayers = new HashSet<>();
                 if (configJson.has("blacklisted_players")) {
                     configJson.getAsJsonArray("blacklisted_players")
-                            .forEach(element -> tempBlacklistedPlayers.add(element.getAsString().toLowerCase()));
+                            .forEach(element -> {
+                                String player = element.getAsString();
+                                tempBlacklistedPlayers.add(player);
+                                LOGGER.info("Loaded blacklisted player: {}", player);
+                            });
                 }
 
                 String tempDailyResetTime = configJson.has("daily_reset_time")
                         ? configJson.get("daily_reset_time").getAsString()
-                        : "00:00:00 UTC";
+                        : "00:00:00";
 
                 manager.usernameColors = Map.copyOf(tempUsernameColors);
                 manager.blacklistedPlayers = Set.copyOf(tempBlacklistedPlayers);
                 manager.dailyResetTime = tempDailyResetTime;
                 LOGGER.info("Successfully loaded statscore_config.json");
+                LOGGER.info("Blacklisted players after loading: {}", tempBlacklistedPlayers);
             } catch (IOException | JsonParseException e) {
                 LOGGER.error("Failed to load statscore_config.json", e);
                 resetToDefaults(manager);
@@ -122,7 +220,7 @@ public class ConfigManager {
         static void createDefaultConfig(File configFile) {
             JsonObject defaultConfig = new JsonObject();
             defaultConfig.addProperty("_comment", "DO NOT EDIT THIS FILE MANUALLY. Use /statsconfig commands to modify settings.");
-            defaultConfig.addProperty("daily_reset_time", "00:00:00 UTC");
+            defaultConfig.addProperty("daily_reset_time", "00:00:00");
             defaultConfig.add("username_colors", new JsonObject());
             defaultConfig.add("blacklisted_players", new com.google.gson.JsonArray());
 
@@ -138,7 +236,7 @@ public class ConfigManager {
             LOGGER.warn("Resetting to default configuration");
             manager.usernameColors = Map.of();
             manager.blacklistedPlayers = Set.of();
-            manager.dailyResetTime = "00:00:00 UTC";
+            manager.dailyResetTime = "00:00:00";
             if (manager.dailyPlaytimeTracker != null) {
                 manager.dailyPlaytimeTracker.setDailyResetTime(manager.dailyResetTime);
             } else {

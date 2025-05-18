@@ -135,9 +135,20 @@ public class PlaytimeRunCommand {
         }
 
         void displayLeaderboard(CommandSourceStack source) {
-            int maxUsernameLength = calculateMaxUsernameLength();
+            // Filter out blacklisted players
+            List<PlaytimeTracker.PlayerPlaytime> filteredPlaytimes = playtimes.stream()
+                    .filter(pt -> !blacklistedPlayers.contains(pt.username()))
+                    .toList();
+
+            if (filteredPlaytimes.isEmpty()) {
+                source.sendSystemMessage(Component.literal("No eligible players to display (all blacklisted or no data)")
+                        .withStyle(ChatFormatting.YELLOW));
+                return;
+            }
+
+            int maxUsernameLength = calculateMaxUsernameLength(filteredPlaytimes);
             int totalPadding = Math.max(BASE_PADDING, maxUsernameLength + RANK_LENGTH);
-            int maxLineLength = calculateMaxLineLength(totalPadding);
+            int maxLineLength = calculateMaxLineLength(totalPadding, filteredPlaytimes);
 
             String border = "=".repeat(maxLineLength + 3);
             MutableComponent borderComponent = Component.literal(border)
@@ -147,9 +158,9 @@ public class PlaytimeRunCommand {
             source.sendSystemMessage(Component.literal("Playtime:")
                     .withStyle(ChatFormatting.DARK_GREEN));
 
-            for (int i = 0; i < playtimes.size(); i++) {
-                formatPlayerEntry(source, playtimes.get(i), i + 1, totalPadding);
-                if (i == 2 && playtimes.size() > 3) {
+            for (int i = 0; i < filteredPlaytimes.size(); i++) {
+                formatPlayerEntry(source, filteredPlaytimes.get(i), i + 1, totalPadding);
+                if (i == 2 && filteredPlaytimes.size() > 3) {
                     source.sendSystemMessage(Component.literal(""));
                 }
             }
@@ -157,14 +168,14 @@ public class PlaytimeRunCommand {
             source.sendSystemMessage(borderComponent);
         }
 
-        private int calculateMaxUsernameLength() {
+        private int calculateMaxUsernameLength(List<PlaytimeTracker.PlayerPlaytime> playtimes) {
             return playtimes.stream()
                     .map(pt -> (pt.username() + ":").length())
                     .max(Integer::compareTo)
                     .orElse(0);
         }
 
-        private int calculateMaxLineLength(int totalPadding) {
+        private int calculateMaxLineLength(int totalPadding, List<PlaytimeTracker.PlayerPlaytime> playtimes) {
             int maxLineLength = 0;
             for (int i = 0; i < playtimes.size(); i++) {
                 int lineLength = 0;
@@ -199,7 +210,7 @@ public class PlaytimeRunCommand {
             String username = pt.username() + ":";
             int usernamePadding = (rank != PodiumRank.NONE) ? totalPadding - RANK_LENGTH : totalPadding;
             String paddedUsername = username + " ".repeat(Math.max(0, usernamePadding - username.length()));
-            ChatFormatting usernameColor = usernameColors.getOrDefault(pt.username().toLowerCase(), ChatFormatting.WHITE);
+            ChatFormatting usernameColor = usernameColors.getOrDefault(pt.username(), ChatFormatting.WHITE);
             MutableComponent usernameComponent = Component.literal(paddedUsername)
                     .withStyle(Style.EMPTY.withColor(usernameColor).withBold(false));
 

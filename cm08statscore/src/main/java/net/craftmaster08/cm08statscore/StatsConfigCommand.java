@@ -30,14 +30,6 @@ public class StatsConfigCommand {
             .map(color -> color.getName().toUpperCase())
             .collect(Collectors.toList());
 
-    private static final List<String> TIMEZONES = Arrays.asList(
-            "UTC-12:00", "UTC-11:00", "UTC-10:00", "UTC-09:00", "UTC-08:00",
-            "UTC-07:00", "UTC-06:00", "UTC-05:00", "UTC-04:00", "UTC-03:00",
-            "UTC-02:00", "UTC-01:00", "UTC+00:00", "UTC+01:00", "UTC+02:00",
-            "UTC+03:00", "UTC+04:00", "UTC+05:00", "UTC+06:00", "UTC+07:00",
-            "UTC+08:00", "UTC+09:00", "UTC+10:00", "UTC+11:00", "UTC+12:00"
-    );
-
     /**
      * Registers the /statsconfig command and its subcommands.
      *
@@ -72,8 +64,6 @@ public class StatsConfigCommand {
                 .then(Commands.literal("dailyresettime")
                         .executes(StatsConfigCommand::dailyResetTimeShow)
                         .then(Commands.argument("time", StringArgumentType.greedyString())
-                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(
-                                        TIMEZONES.stream().map(tz -> "00:00:00 " + tz), builder))
                                 .executes(context -> dailyResetTimeSet(context, StringArgumentType.getString(context, "time")))));
 
         try {
@@ -148,8 +138,7 @@ public class StatsConfigCommand {
                 throw new IllegalStateException("ConfigManager not initialized");
             }
             Set<String> blacklistedPlayers = new HashSet<>(config.getBlacklistedPlayers());
-            String playerLower = player.toLowerCase();
-            if (blacklistedPlayers.add(playerLower)) {
+            if (blacklistedPlayers.add(player)) {
                 config.blacklistedPlayers = Set.copyOf(blacklistedPlayers);
                 saveConfig(config);
                 source.sendSystemMessage(Component.literal("Added " + player + " to blacklist")
@@ -209,8 +198,7 @@ public class StatsConfigCommand {
                 throw new IllegalStateException("ConfigManager not initialized");
             }
             Set<String> blacklistedPlayers = new HashSet<>(config.getBlacklistedPlayers());
-            String playerLower = player.toLowerCase();
-            if (blacklistedPlayers.remove(playerLower)) {
+            if (blacklistedPlayers.remove(player)) {
                 config.blacklistedPlayers = Set.copyOf(blacklistedPlayers);
                 saveConfig(config);
                 source.sendSystemMessage(Component.literal("Removed " + player + " from blacklist")
@@ -240,7 +228,7 @@ public class StatsConfigCommand {
             if (config == null) {
                 throw new IllegalStateException("ConfigManager not initialized");
             }
-            ChatFormatting color = config.getUsernameColors().getOrDefault(player.toLowerCase(), ChatFormatting.WHITE);
+            ChatFormatting color = config.getUsernameColors().getOrDefault(player, ChatFormatting.WHITE);
             source.sendSystemMessage(Component.literal(player + "'s color: " + color.getName().toUpperCase())
                     .withStyle(color));
             LOGGER.info("{} viewed color for {}", source.getTextName(), player);
@@ -270,7 +258,7 @@ public class StatsConfigCommand {
                 return 0;
             }
             Map<String, ChatFormatting> usernameColors = new HashMap<>(config.getUsernameColors());
-            usernameColors.put(player.toLowerCase(), color);
+            usernameColors.put(player, color);
             config.usernameColors = Map.copyOf(usernameColors);
             saveConfig(config);
             source.sendSystemMessage(Component.literal("Set " + player + "'s color to " + color.getName().toUpperCase())
@@ -296,7 +284,7 @@ public class StatsConfigCommand {
                 throw new IllegalStateException("ConfigManager not initialized");
             }
             Map<String, ChatFormatting> usernameColors = new HashMap<>(config.getUsernameColors());
-            if (usernameColors.remove(player.toLowerCase()) != null) {
+            if (usernameColors.remove(player) != null) {
                 config.usernameColors = Map.copyOf(usernameColors);
                 saveConfig(config);
                 source.sendSystemMessage(Component.literal("Reset " + player + "'s color to WHITE")
@@ -348,10 +336,10 @@ public class StatsConfigCommand {
             if (config == null) {
                 throw new IllegalStateException("ConfigManager not initialized");
             }
-            // Validate time format (HH:mm:ss UTC±HH:MM)
+            // Validate time format (HH:mm:ss UTC)
             String[] parts = time.split(" ");
-            if (parts.length != 2 || !parts[0].matches("\\d{2}:\\d{2}:\\d{2}") || !parts[1].matches("UTC[+-]\\d{2}:\\d{2}")) {
-                source.sendSystemMessage(Component.literal("Invalid time format. Use HH:mm:ss UTC±HH:MM")
+            if (parts.length != 1 || !parts[0].matches("^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$")) {
+                source.sendSystemMessage(Component.literal("Invalid time format. Use HH:mm:ss")
                         .withStyle(ChatFormatting.RED));
                 return 0;
             }
@@ -360,7 +348,7 @@ public class StatsConfigCommand {
                 config.dailyPlaytimeTracker.setDailyResetTime(time);
             }
             saveConfig(config);
-            source.sendSystemMessage(Component.literal("Set daily reset time to " + time)
+            source.sendSystemMessage(Component.literal("Set daily reset time to " + time + " UTC")
                     .withStyle(ChatFormatting.GREEN));
             LOGGER.info("{} set daily reset time to {}", source.getTextName(), time);
             return 1;
